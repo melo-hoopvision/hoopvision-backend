@@ -1,0 +1,47 @@
+from fastapi import FastAPI, File, UploadFile
+import cv2
+import numpy as np
+import tempfile
+import shutil
+
+app = FastAPI()
+
+@app.get("/")
+def home():
+    return {"status": "ok"}
+
+@app.post("/upload")
+async def upload_video(file: UploadFile = File(...)):
+    
+    with tempfile.NamedTemporaryFile(delete=False) as temp:
+        shutil.copyfileobj(file.file, temp)
+        temp_path = temp.name
+
+    cap = cv2.VideoCapture(temp_path)
+
+    motion_frames = 0
+    prev_frame = None
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        if prev_frame is not None:
+            diff = cv2.absdiff(prev_frame, gray)
+            _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+            motion = np.sum(thresh)
+
+            if motion > 500000:
+                motion_frames += 1
+
+        prev_frame = gray
+
+    cap.release()
+
+    return {
+        "status": "processed",
+        "motion_frames": motion_frames
+    }
