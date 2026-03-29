@@ -88,3 +88,6 @@ async def upload_video(file: UploadFile = File(...), player_x: float = 0.5, play
         "status": "processed",
         "motion_frames": motion_frames
     }
+@app.get("/health")
+def health():
+    return {"status": "ok"}
