@@ -63,7 +63,7 @@ async def upload_video(
     cap.release()
 
     # Threshold más alto = menos falsos positivos
-    threshold = 0.07
+    threshold = 0.06
 
     events = [f for f in motion_frames if f["score"] > threshold]
 
