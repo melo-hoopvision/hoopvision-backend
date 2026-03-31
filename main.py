@@ -24,46 +24,20 @@ def health():
     return {"status": "ok"}
 
 @app.post("/upload")
-async def upload_video(file: UploadFile = File(...), player_x: float = 0.5, player_y: float = 0.5):
+async def upload_video(
+    file: UploadFile = File(...),
+    player_x: float = 0.5,
+    player_y: float = 0.5
+):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
+
     cap = cv2.VideoCapture(tmp_path)
     motion_frames = []
     prev_frame = None
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
     frame_idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        if prev_frame is not None:
-            diff = cv2.absdiff(gray, prev_frame)
-            score = float(np.mean(diff)) / 255.0
-            t = round(frame_idx / fps, 2)
-            motion_frames.append({"t": t, "score": score})
-        prev_frame = gray
-        frame_idx += 1
-    cap.release()
-    threshold = 0.04
-    events = [f for f in motion_frames if f["score"] > threshold]
-    filtered = []
-    last_t = -2
-    for e in events:
-        if e["t"] - last_t > 1.0:
-            filtered.append(e)
-            last_t = e["t"]
-    return {"total": len(filtered), "events": filtered}
-    
-    with tempfile.NamedTemporaryFile(delete=False) as temp:
-        shutil.copyfileobj(file.file, temp)
-        temp_path = temp.name
-
-    cap = cv2.VideoCapture(temp_path)
-
-    motion_frames = 0
-    prev_frame = None
 
     while True:
         ret, frame = cap.read()
@@ -77,17 +51,28 @@ async def upload_video(file: UploadFile = File(...), player_x: float = 0.5, play
             _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
             motion = np.sum(thresh)
 
-            if motion > 500000:
-                motion_frames += 1
+            # Filtro de tamaño: ignorar movimientos pequeños
+            if motion > 800000:
+                score = float(np.mean(diff)) / 255.0
+                t = round(frame_idx / fps, 2)
+                motion_frames.append({"t": t, "score": score})
 
         prev_frame = gray
+        frame_idx += 1
 
     cap.release()
 
-    return {
-        "status": "processed",
-        "motion_frames": motion_frames
-    }
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+    # Threshold más alto = menos falsos positivos
+    threshold = 0.07
+
+    events = [f for f in motion_frames if f["score"] > threshold]
+
+    # Cooldown de 2 segundos entre tiros
+    filtered = []
+    last_t = -2
+    for e in events:
+        if e["t"] - last_t > 2.0:
+            filtered.append(e)
+            last_t = e["t"]
+
+    return {"total": len(filtered), "events": filtered}
