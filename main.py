@@ -5,6 +5,7 @@ import numpy as np
 import tempfile
 import shutil
 import mediapipe as mp
+from kba_features import extract_features, interpret_biomechanics  # Change 1
 
 app = FastAPI()
 
@@ -46,6 +47,8 @@ async def upload_video(
     # Guardamos la posición Y normalizada de la muñeca derecha/izquierda
     wrist_history = []   # [{t, wy, ey, sy}]  wy=wrist, ey=elbow, sy=shoulder
 
+    all_keypoints = []   # Change 2 — KBA collector
+
     pose = mp_pose.Pose(
         static_image_mode=False,
         model_complexity=1,
@@ -66,6 +69,13 @@ async def upload_video(
 
             if results.pose_landmarks:
                 lm = results.pose_landmarks.landmark
+
+                # Change 3 — serialize landmarks for KBA (before side-selection)
+                all_keypoints.append([
+                    {"x": l.x, "y": l.y, "z": l.z, "visibility": l.visibility}
+                    for l in lm
+                ])
+
                 # Usamos hombro, codo y muñeca del lado con más visibilidad
                 # Landmarks: 11=hombro_izq, 12=hombro_der
                 #             13=codo_izq,  14=codo_der
@@ -89,10 +99,17 @@ async def upload_video(
                     "vis": max(vis_r, vis_l) / 3.0
                 })
 
+            else:
+                all_keypoints.append([])  # Change 3 — keep frame count in sync
+
         frame_idx += 1
 
     cap.release()
     pose.close()
+
+    # Change 4 — run KBA after pose.close(), before shot detection
+    kba_raw      = extract_features(all_keypoints, fps=fps / 3)
+    kba_coaching = interpret_biomechanics(kba_raw)
 
     if len(wrist_history) < 5:
         return {"total": 0, "events": [], "note": "No se detectaron poses"}
@@ -182,8 +199,8 @@ async def upload_video(
         })
 
     return {
-        "total":  len(events),
-        "events": events,
-        "source": "mediapipe_pose"
+        "total":       len(events),
+        "events":      events,
+        "source":      "mediapipe_pose",
+        "biomechanics": kba_coaching,
     }
-
